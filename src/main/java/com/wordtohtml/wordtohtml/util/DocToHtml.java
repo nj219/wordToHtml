@@ -122,8 +122,6 @@ public class DocToHtml {
         //利用jsoup解析HTML
         org.jsoup.nodes.Document doc = Jsoup.parse(content);
 
-
-
         Elements table = doc.getElementsByTag("table");
 
         Elements div = doc.getElementsByTag("div");
@@ -172,8 +170,25 @@ public class DocToHtml {
                 href = "http://localhost/test/wordDoc/?word=" + s; //修改style中的url值
             }
 
-
             anode.attr("href", href);
+        }
+
+        String html = doc.toString();
+        String endHtml = "";
+        String[] split = html.split("[《]");
+        for (String s : split) {
+            endHtml += s + "《";
+
+            String[] split1 = s.split("[》]");
+
+            for (String s1 : split1) {
+                if (s1.startsWith("<")) {
+
+                } else {
+                    System.out.println(s1);
+                    endHtml += "<a href='"+ s1 +"'>" + s1 + "</a>";
+                }
+            }
         }
 
         FileOutputStream fos = null;
@@ -183,7 +198,7 @@ public class DocToHtml {
             fos = new FileOutputStream(file);
             bw = new BufferedWriter(new OutputStreamWriter(fos, "utf-8"));
 
-            bw.write(doc.toString());
+            bw.write(html);
         } catch (FileNotFoundException fnfe) {
             fnfe.printStackTrace();
         } catch (IOException ioe) {
