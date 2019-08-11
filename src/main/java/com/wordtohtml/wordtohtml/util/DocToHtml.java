@@ -4,8 +4,10 @@ import org.apache.poi.hpsf.DocumentSummaryInformation;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.converter.PicturesManager;
 import org.apache.poi.hwpf.converter.WordToHtmlConverter;
-import org.apache.poi.hwpf.model.*;
-import org.apache.poi.hwpf.usermodel.*;
+import org.apache.poi.hwpf.usermodel.HeaderStories;
+import org.apache.poi.hwpf.usermodel.Picture;
+import org.apache.poi.hwpf.usermodel.PictureType;
+import org.apache.poi.hwpf.usermodel.Range;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
@@ -119,10 +121,26 @@ public class DocToHtml {
      * @param
      */
     private static void writeFile(String content, String path) {
+        //需要新增《》链接解析，增加<a>标签,说明：
+        //只作为上传旧文件解析时使用，后期上传文件走正常流程!!!!
+        //如果使用需要改进对资源的浪费
+        //需要对a标签进行解析
+        String oldHtml = content;
+        String endHtml = "";
+        for (int i = 0; i < oldHtml.length(); i++) {
+            String substring = oldHtml.substring(i, i + 1);
+            endHtml += substring;
+            if (substring.equals("《")) {
+                endHtml += "<a>";
+
+            }
+            if (substring.equals("》")) {
+                endHtml += "</a>";
+            }
+        }
+
         //利用jsoup解析HTML
-        org.jsoup.nodes.Document doc = Jsoup.parse(content);
-
-
+        org.jsoup.nodes.Document doc = Jsoup.parse(endHtml);
 
         Elements table = doc.getElementsByTag("table");
 
@@ -157,6 +175,10 @@ public class DocToHtml {
         for (int i = 0; i < e.size(); i++) {
             Element anode = e.get(i);
             String href = anode.attr("href");
+
+            if (href.isEmpty()) {
+                href = "http://localhost/test/wordDoc/?word=" + anode.text().split("》")[0]; //修改style中的url值
+            }
 
             if (href.startsWith("http") || href.startsWith("https")) {
 

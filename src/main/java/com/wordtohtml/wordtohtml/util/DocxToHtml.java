@@ -2,19 +2,12 @@ package com.wordtohtml.wordtohtml.util;
 
 import com.alibaba.fastjson.JSONObject;
 import lombok.extern.slf4j.Slf4j;
-import lombok.val;
 import org.apache.http.entity.ContentType;
-import org.apache.poi.poifs.property.Child;
-import org.apache.poi.xwpf.converter.core.BasicURIResolver;
-import org.apache.poi.xwpf.converter.core.FileImageExtractor;
-import org.apache.poi.xwpf.converter.xhtml.XHTMLConverter;
-import org.apache.poi.xwpf.converter.xhtml.XHTMLOptions;
 import org.apache.poi.xwpf.model.XWPFHeaderFooterPolicy;
 import org.apache.poi.xwpf.usermodel.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
-import org.jsoup.nodes.Node;
 import org.jsoup.select.Elements;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTDocument1;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTHdrFtr;
@@ -22,12 +15,14 @@ import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTTbl;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.stereotype.Component;
-import org.springframework.stereotype.Controller;
 import org.springframework.web.multipart.MultipartFile;
 
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.transform.TransformerException;
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -69,8 +64,7 @@ public class DocxToHtml {
         XWPFDocument document = new XWPFDocument(new FileInputStream(fileName));
 
         //解析正文xml
-        CTDocument1 documentXml = document.getDocument();
-        String bodyHtml = parsingBodyXML(documentXml);
+        String bodyHtml = parsingBodyXML(document);
 
         //页眉页脚
         XWPFHeaderFooterPolicy headerFooterPolicy = document.getHeaderFooterPolicy();
@@ -81,27 +75,26 @@ public class DocxToHtml {
         List<XWPFPictureData> allPictures = header.getAllPictures();
         int size = allPictures.size();
         String upUrl = "";
-        if (size >0) {
+        if (size > 0) {
             for (XWPFPictureData picture : allPictures) {
                 String picName = picture.getFileName();
                 try {
                     String type = picName.split("[.]")[1];
                     byte[] data = picture.getData();
                     InputStream inputStream = new ByteArrayInputStream(data);
-                    MultipartFile file = new MockMultipartFile("new." + type,"old." + type, ContentType.APPLICATION_OCTET_STREAM.toString(), inputStream);
+                    MultipartFile file = new MockMultipartFile("new." + type, "old." + type, ContentType.APPLICATION_OCTET_STREAM.toString(), inputStream);
 
                     upUrl = HttpClientUtils.httpClientUploadFile(url, file);
+
+                    Map<String, String> parse = (Map<String, String>) JSONObject.parse(upUrl);
+                    for (String value : parse.values()) {
+                        upUrl = value;
+                        break;
+                    }
                 } catch (Exception e) {
                     log.info("------------------------------页眉图片解析异常-------------------------------------------");
+                    throw new RuntimeException("页眉图片解析异常");
                 }
-
-                Map<String, String> parse = (Map<String, String>) JSONObject.parse(upUrl);
-                for (String value : parse.values()) {
-                    upUrl = value;
-                    break;
-                }
-
-                log.info(upUrl);
             }
         }
 
@@ -145,7 +138,6 @@ public class DocxToHtml {
             headerHtml = body.get(0).children().toString();
         }
 
-
         //页脚
         CTHdrFtr ctHdrFtr = footer._getHdrFtr();  //页脚xml
         String footerHtml = footerParsing(ctHdrFtr);
@@ -155,15 +147,17 @@ public class DocxToHtml {
 
     /**
      * 解析正文xml
-     * @param documentXml
+     *
+     * @param document
      * @return
      */
-    private static String parsingBodyXML(CTDocument1 documentXml) {
+    private static String parsingBodyXML(XWPFDocument document) {
+        //获取正文xml
+        CTDocument1 documentXml = document.getDocument();
         String bodyHtml = "";
 
         Document bodyDocument = Jsoup.parse(documentXml.toString());
         //解析最大节点
-        //TODO 图片未解析
         Elements wBody = bodyDocument.getElementsByTag("w:body");
         for (Element body : wBody) {
             //解析每一个子元素
@@ -178,68 +172,195 @@ public class DocxToHtml {
                 if ("w:p".equals(tagName)) {
                     String textAlign = "";
                     bodyHtml += "<div>";
-                    Elements wppr = child.getElementsByTag("w:pPr");
-                    Elements wr = child.getElementsByTag("w:r");
-                    //获取样式
-                    for (Element ppr : wppr) {
-                        Elements wjc = ppr.getElementsByTag("w:jc");
-                        for (Element jc : wjc) {
-                            textAlign = "text-align: " + jc.attr("w:val");
+
+                    //遍历w:p下的所有子元素，防止遗漏超链接,内容重复
+                    Elements wpChild = child.children();
+
+                    for (Element pChild : wpChild) {
+                        String s = pChild.tagName();
+
+                        if ("w:pPr".equals(s)) {
+                            //获取样式
+                            Elements wjc = pChild.getElementsByTag("w:jc");
+                            for (Element jc : wjc) {
+                                textAlign = "text-align: " + jc.attr("w:val");
+                            }
+
                         }
+
+                        bodyHtml += "<p style='" + textAlign + "'>";
+                        if ("w:r".equals(s)) {
+                            //获取文本内容
+                            String font = "";
+                            String eleWb = "";
+                            String fontcolor = "";
+                            String i = "";
+
+                            //字体样式
+                            Elements wrpr = pChild.getElementsByTag("w:rPr");
+                            for (Element rpr : wrpr) {
+                                //字体
+                                Elements wrFonts = rpr.getElementsByTag("w:rFonts");
+                                for (Element wrFont : wrFonts) {
+                                    font = "font: \"" + wrFont.attr("w:hint") + "\";";
+                                }
+                                //加粗
+                                Elements wb = rpr.getElementsByTag("w:b");
+                                if (!wb.isEmpty()) {
+                                    eleWb = "font-weight: bold;";
+                                }
+                                //颜色
+                                Elements wcolor = rpr.getElementsByTag("w:color");
+                                for (Element color : wcolor) {
+                                    fontcolor = "color: #" + color.attr("w:val") + ";";
+                                }
+                                //斜体
+                                Elements wi = rpr.getElementsByTag("w:i");
+                                if (!wi.isEmpty()) {
+                                    i = "font-style: italic;";
+                                }
+
+                            }
+
+                            //文本
+                            Elements wt = pChild.getElementsByTag("w:t");
+                            if (wt.isEmpty()) {
+                                bodyHtml += "<br />";
+                            }
+                            bodyHtml += "<span style='" + font + eleWb + fontcolor + i + "'>";
+                            for (Element t : wt) {
+                                String space = t.attr("xml:space");
+                                if (!space.isEmpty()) {
+                                    bodyHtml += "&nbsp;";
+                                }
+                                bodyHtml += t.text();
+                            }
+
+                            //图片
+                            Elements wdrawing = pChild.getElementsByTag("w:drawing");
+                            for (Element drawind : wdrawing) {
+                                //获取图片id，以获取图片流
+                                Elements ablip = drawind.getElementsByTag("a:blip");
+                                for (Element blip : ablip) {
+                                    String rembed = blip.attr("r:embed");
+                                    XWPFPictureData rId = document.getPictureDataByID(rembed);
+                                    String fileName = rId.getFileName();
+                                    String type = fileName.split(".")[1];
+                                    byte[] pic = rId.getData();
+                                    String upUrl = "";
+
+                                    //将图片存入服务器
+                                    try {
+                                        InputStream inputStream = new ByteArrayInputStream(pic);
+                                        MultipartFile file = new MockMultipartFile("new." + type, "old." + type, ContentType.APPLICATION_OCTET_STREAM.toString(), inputStream);
+
+                                        upUrl = HttpClientUtils.httpClientUploadFile(url, file);
+                                        //解析图片路径
+                                        Map<String, String> parse = (Map<String, String>) JSONObject.parse(upUrl);
+                                        for (String value : parse.values()) {
+                                            upUrl = value;
+                                            break;
+                                        }
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
+                                    }
+
+                                    bodyHtml += "<img href='\"" + uploadUrl + upUrl + "\" /'>";
+                                }
+                            }
+                            bodyHtml += "</span>";
+                        }
+
+                        if ("w:ins".equals(s)) {
+                            //获取文本内容
+                            String font = "";
+                            String eleWb = "";
+                            String fontcolor = "";
+                            String i = "";
+
+                            //字体样式
+                            Elements wrpr = pChild.getElementsByTag("w:rPr");
+                            for (Element rpr : wrpr) {
+                                //字体
+                                Elements wrFonts = rpr.getElementsByTag("w:rFonts");
+                                for (Element wrFont : wrFonts) {
+                                    font = "font: \"" + wrFont.attr("w:hint") + "\";";
+                                }
+                                //加粗
+                                Elements wb = rpr.getElementsByTag("w:b");
+                                if (!wb.isEmpty()) {
+                                    eleWb = "font-weight: bold;";
+                                }
+                                //颜色
+                                Elements wcolor = rpr.getElementsByTag("w:color");
+                                for (Element color : wcolor) {
+                                    fontcolor = "color: #" + color.attr("w:val") + ";";
+                                }
+                                //斜体
+                                Elements wi = rpr.getElementsByTag("w:i");
+                                if (!wi.isEmpty()) {
+                                    i = "font-style: italic;";
+                                }
+
+                            }
+
+                            //超链接
+                            String text = "";
+                            Elements winstrText = pChild.getElementsByTag("w:instrText");
+                            for (Element instrText : winstrText) {
+                                text = instrText.text();
+                            }
+
+                            //文本
+                            Elements wt = pChild.getElementsByTag("w:t");
+                            if (wt.isEmpty()) {
+                                bodyHtml += "<br />";
+                            }
+                            bodyHtml += "<a href='localhost:/" + text + "'><span style='" + font + eleWb + fontcolor + i + "'>";
+                            for (Element t : wt) {
+                                String space = t.attr("xml:space");
+                                if (!space.isEmpty()) {
+                                    bodyHtml += "&nbsp;";
+                                }
+                                bodyHtml += t.text();
+                            }
+
+                            //图片
+                            Elements wdrawing = pChild.getElementsByTag("w:drawing");
+                            for (Element drawind : wdrawing) {
+                                //获取图片id，以获取图片流
+                                Elements ablip = drawind.getElementsByTag("a:blip");
+                                for (Element blip : ablip) {
+                                    String rembed = blip.attr("r:embed");
+                                    XWPFPictureData rId = document.getPictureDataByID(rembed);
+                                    String fileName = rId.getFileName();
+                                    String type = fileName.split(".")[1];
+                                    byte[] pic = rId.getData();
+                                    String upUrl = "";
+
+                                    //将图片存入服务器
+                                    try {
+                                        InputStream inputStream = new ByteArrayInputStream(pic);
+                                        MultipartFile file = new MockMultipartFile("new." + type, "old." + type, ContentType.APPLICATION_OCTET_STREAM.toString(), inputStream);
+
+                                        upUrl = HttpClientUtils.httpClientUploadFile(url, file);
+                                        //解析图片路径
+                                        Map<String, String> parse = (Map<String, String>) JSONObject.parse(upUrl);
+                                        for (String value : parse.values()) {
+                                            upUrl = value;
+                                            break;
+                                        }
+                                    } catch (IOException e) {
+                                        e.printStackTrace();
+                                    }
+
+                                    bodyHtml += "<img href='\"" + uploadUrl + upUrl + "\" /'>";
+                                }
+                            }
+                            bodyHtml += "</span></a>";
+                        }
+                        bodyHtml += "</p>";
                     }
-
-                    bodyHtml += "<p style='"+textAlign+"'>";
-                    //获取文本内容
-                    for (Element r : wr) {
-                        String font = "";
-                        String eleWb = "";
-                        String fontcolor = "";
-
-                        //字体样式
-                        Elements wrpr = r.getElementsByTag("w:rPr");
-                        for (Element rpr : wrpr) {
-                            //字体
-                            Elements wrFonts = rpr.getElementsByTag("w:rFonts");
-                            for (Element wrFont : wrFonts) {
-                                font = "font: \"" + wrFont.attr("w:hint") + "\";";
-                            }
-                            //加粗
-                            Elements wb = rpr.getElementsByTag("w:b");
-                            if (!wb.isEmpty()) {
-                                eleWb = "font-weight: bold;";
-                            }
-                            //颜色
-                            Elements wcolor = rpr.getElementsByTag("w:color");
-                            for (Element color : wcolor) {
-                                fontcolor = "color: #" + color.attr("w:val") + ";";
-                            }
-
-                        }
-
-                        //文本
-                        Elements wt = r.getElementsByTag("w:t");
-                        if (wt.isEmpty()) {
-                            bodyHtml += "<br />";
-                        }
-                        bodyHtml += "<span style='" + font + eleWb + fontcolor + "'>";
-                        for (Element t : wt) {
-                            String space = t.attr("xml:space");
-                            if (!space.isEmpty()) {
-                                bodyHtml += "&nbsp;";
-                            }
-                            bodyHtml += t.text();
-                        }
-
-                        //图片
-                        Elements wdrawing = r.getElementsByTag("w:drawing");
-                        for (Element drawind : wdrawing) {
-
-                        }
-
-                        bodyHtml += "</span>";
-                    }
-
-                    bodyHtml += "</p>";
                     bodyHtml += "</div>";
                 }
 
@@ -306,6 +427,7 @@ public class DocxToHtml {
 
     /**
      * 解析页脚xml
+     *
      * @param footer
      * @return
      */
@@ -364,6 +486,7 @@ public class DocxToHtml {
 
     /**
      * 解析页眉xml(表格)
+     *
      * @param header
      * @return
      */
@@ -432,7 +555,7 @@ public class DocxToHtml {
                         //文字
                         for (Element t : wt) {
                             if (attrwjc != "") {
-                                heaerHtml += eleWbcs + "<span style='float: left; display: block; text-align: "+attrwjc + ";" + attrfont + eleWb + "'>" + t.text() + "</span>";
+                                heaerHtml += eleWbcs + "<span style='float: left; display: block; text-align: " + attrwjc + ";" + attrfont + eleWb + "'>" + t.text() + "</span>";
                             } else {
                                 heaerHtml += eleWbcs + "<span style=\"float: left; display: block;" + attrfont + eleWb + "\">" + t.text() + "</span>";
                             }
@@ -456,6 +579,7 @@ public class DocxToHtml {
 
     /**
      * 解析页眉xml(非表格)
+     *
      * @param headerXml
      * @return
      */

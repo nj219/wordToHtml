@@ -1,15 +1,11 @@
 package com.wordtohtml.wordtohtml;
 
-import com.wordtohtml.wordtohtml.util.DocToHtml;
 import com.wordtohtml.wordtohtml.util.DocxToHtml;
-import com.wordtohtml.wordtohtml.util.XWPFUtils;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.junit4.SpringRunner;
 
-import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.TransformerException;
 import java.io.IOException;
 
 @RunWith(SpringRunner.class)
@@ -18,7 +14,7 @@ public class WordToHtmlApplicationTests {
 
     @Test
     public void contextLoads() {
-        try {
+        /*try {
             DocToHtml.convert2Html("F:\\file\\FCW-05-01-02-02.doc", "F:\\file\\doc.html");
         } catch (TransformerException e) {
             e.printStackTrace();
@@ -26,13 +22,13 @@ public class WordToHtmlApplicationTests {
             e.printStackTrace();
         } catch (ParserConfigurationException e) {
             e.printStackTrace();
-        }
+        }*/
 
-        /*try {
+        try {
             DocxToHtml.docx2Html("F:/file/FCW-14-02-01-04.docx", "F:/file/docx.html");
         } catch (IOException e) {
             e.printStackTrace();
-        }*/
+        }
 
         /*try {
             //XWPFUtils.getImgUrl("F:/file/测试.docx");
