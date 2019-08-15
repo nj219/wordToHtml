@@ -52,7 +52,6 @@ public class DocxToHtml {
 
     /**
      * 解析docx
-     *
      * @param fileName    文件名称
      * @param fileOutName 输出路径
      * @throws TransformerException
@@ -175,20 +174,20 @@ public class DocxToHtml {
 
                     //遍历w:p下的所有子元素，防止遗漏超链接,内容重复
                     Elements wpChild = child.children();
-
+                    bodyHtml += "<p style='" + textAlign + "'>";
                     for (Element pChild : wpChild) {
                         String s = pChild.tagName();
 
-                        if ("w:pPr".equals(s)) {
+                        /*if ("w:pPr".equals(s)) {
                             //获取样式
                             Elements wjc = pChild.getElementsByTag("w:jc");
                             for (Element jc : wjc) {
                                 textAlign = "text-align: " + jc.attr("w:val");
                             }
 
-                        }
+                        }*/
 
-                        bodyHtml += "<p style='" + textAlign + "'>";
+
                         if ("w:r".equals(s)) {
                             //获取文本内容
                             String font = "";
@@ -245,7 +244,7 @@ public class DocxToHtml {
                                     String rembed = blip.attr("r:embed");
                                     XWPFPictureData rId = document.getPictureDataByID(rembed);
                                     String fileName = rId.getFileName();
-                                    String type = fileName.split(".")[1];
+                                    String type = fileName.split("[.]")[1];
                                     byte[] pic = rId.getData();
                                     String upUrl = "";
 
@@ -265,7 +264,7 @@ public class DocxToHtml {
                                         e.printStackTrace();
                                     }
 
-                                    bodyHtml += "<img href='\"" + uploadUrl + upUrl + "\" /'>";
+                                    bodyHtml += "<img href='" + uploadUrl + upUrl + " '/>";
                                 }
                             }
                             bodyHtml += "</span>";
@@ -354,13 +353,14 @@ public class DocxToHtml {
                                         e.printStackTrace();
                                     }
 
-                                    bodyHtml += "<img href='\"" + uploadUrl + upUrl + "\" /'>";
+                                    bodyHtml += "<img href='" + uploadUrl + upUrl + " '/>";
                                 }
                             }
                             bodyHtml += "</span></a>";
                         }
-                        bodyHtml += "</p>";
+
                     }
+                    bodyHtml += "</p>";
                     bodyHtml += "</div>";
                 }
 
@@ -421,6 +421,37 @@ public class DocxToHtml {
 
             }
         }
+
+        //仅限旧文件解析，
+        //后期注释
+        /*开始*/
+        String oldHtml = bodyHtml;
+        String endHtml = "";
+        for (int i = 0; i < oldHtml.length(); i++) {
+            String substring = oldHtml.substring(i, i + 1);
+            endHtml += substring;
+            if (substring.equals("《")) {
+                endHtml += "<a>";
+
+            }
+            if (substring.equals("》")) {
+                endHtml += "</a>";
+            }
+        }
+
+        Elements e = Jsoup.parse(endHtml).select("a");
+        for (int i = 0; i < e.size(); i++) {
+            Element anode = e.get(i);
+            String href = anode.attr("href");
+
+            if (href.isEmpty()) {
+                href = "http://localhost/test/wordDoc/?word=" + anode.text().split("》")[0]; //修改style中的url值
+            }
+
+            anode.attr("href", href);
+        }
+
+        /*结束*/
 
         return bodyHtml;
     }

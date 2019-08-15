@@ -1,17 +1,24 @@
 package com.wordtohtml.wordtohtml.util;
 
+import com.alibaba.fastjson.JSONObject;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.http.entity.ContentType;
 import org.apache.poi.hpsf.DocumentSummaryInformation;
 import org.apache.poi.hwpf.HWPFDocument;
 import org.apache.poi.hwpf.converter.PicturesManager;
 import org.apache.poi.hwpf.converter.WordToHtmlConverter;
-import org.apache.poi.hwpf.usermodel.HeaderStories;
-import org.apache.poi.hwpf.usermodel.Picture;
-import org.apache.poi.hwpf.usermodel.PictureType;
-import org.apache.poi.hwpf.usermodel.Range;
+import org.apache.poi.hwpf.converter.WordToHtmlUtils;
+import org.apache.poi.hwpf.model.DocumentProperties;
+import org.apache.poi.hwpf.model.StyleSheet;
+import org.apache.poi.hwpf.model.io.HWPFOutputStream;
+import org.apache.poi.hwpf.usermodel.*;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.stereotype.Component;
+import org.springframework.web.multipart.MultipartFile;
 import org.w3c.dom.Document;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -24,7 +31,10 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.*;
 import java.net.URLDecoder;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @ClassName docToHtml
@@ -32,7 +42,22 @@ import java.util.List;
  * @Date 2019/8/5 15:43
  **/
 @Component
+@Slf4j
 public class DocToHtml {
+    private static String url;
+
+    @Value("${upload.interface}")
+    public void setUrl(String url) {
+        DocToHtml.url = url;
+    }
+
+    private static String uploadUrl;
+
+    @Value("${uploadUrl}")
+    public void setUploadUrl(String uploadUrl) {
+        DocToHtml.uploadUrl = uploadUrl;
+    }
+
     /**
      * 解析doc
      * @param fileName  文件地址
@@ -46,27 +71,10 @@ public class DocToHtml {
             ParserConfigurationException {
         HWPFDocument wordDocument = new HWPFDocument(new FileInputStream(fileName));
 
-        /*StringBuilder text = wordDocument.getText();
-        String s = text.toString();
-        String[] split = s.split("[《]");
-        for (int i = 0; i < split.length; i++) {
-            String[] split1 = split[i].split("[》]");
-
-            for (int j = 0; j < split1.length; j++) {
-
-                System.out.println(split1[j]);
-
-            }
-        }*/
-
-
-        DocumentSummaryInformation documentSummaryInformation = wordDocument.getDocumentSummaryInformation();
-        String documentText = wordDocument.getDocumentText();
+        Range overallRange = wordDocument.getOverallRange(); //页眉页脚
 
         HeaderStories headerStories = new HeaderStories(wordDocument);
-        String oddHeader = headerStories.getOddHeader();
-
-        Range overallRange = wordDocument.getOverallRange(); //页眉页脚
+        String header = headerStories.getHeader(0);
 
         WordToHtmlConverter wordToHtmlConverter = new WordToHtmlConverter(
                 DocumentBuilderFactory.newInstance().newDocumentBuilder()
@@ -85,16 +93,31 @@ public class DocToHtml {
         //wordToHtmlConverter.processDocument(wordDocument);
         //save pictures
         List pics = wordDocument.getPicturesTable().getAllPictures();
+        LinkedHashMap<String, String> linkedHashMap = new LinkedHashMap<String, String>();
         if (pics != null) {
             for (int i = 0; i < pics.size(); i++) {
                 Picture pic = (Picture) pics.get(i);
-
+                String picName = pic.suggestFullFileName();
+                //图片处理
+                String upUrl = "";
                 try {
-                    pic.writeImageContent(new FileOutputStream("F:/file/"
-                            + pic.suggestFullFileName()));
+                    String type = picName.split("[.]")[1];
+                    byte[] data = pic.getContent();
+                    InputStream inputStream = new ByteArrayInputStream(data);
+                    MultipartFile file = new MockMultipartFile("new." + type, "old." + type, ContentType.APPLICATION_OCTET_STREAM.toString(), inputStream);
 
-                } catch (FileNotFoundException e) {
-                    e.printStackTrace();
+                    upUrl = HttpClientUtils.httpClientUploadFile(url, file);
+
+                    Map<String, String> parse = (Map<String, String>) JSONObject.parse(upUrl);
+                    for (String value : parse.values()) {
+                        upUrl = value;
+                        break;
+                    }
+
+                    linkedHashMap.put(picName, uploadUrl + upUrl);
+                } catch (Exception e) {
+                    log.info("------------------------------页眉图片解析异常-------------------------------------------");
+                    throw new RuntimeException("页眉图片解析异常");
                 }
             }
         }
@@ -111,16 +134,16 @@ public class DocToHtml {
         serializer.setOutputProperty(OutputKeys.METHOD, "html");
         serializer.transform(domSource, streamResult);
         out.close();
-        writeFile(new String(out.toByteArray()), outPutFile);
+        writeFile(new String(out.toByteArray()), linkedHashMap, header);
     }
 
     /**
      * 修改页眉页脚位置
      * @param content
-     * @param path
+     * @param linkedHashMap
      * @param
      */
-    private static void writeFile(String content, String path) {
+    private static void writeFile(String content, LinkedHashMap<String, String > linkedHashMap, String header) {
         //需要新增《》链接解析，增加<a>标签,说明：
         //只作为上传旧文件解析时使用，后期上传文件走正常流程!!!!
         //如果使用需要改进对资源的浪费
@@ -142,22 +165,40 @@ public class DocToHtml {
         //利用jsoup解析HTML
         org.jsoup.nodes.Document doc = Jsoup.parse(endHtml);
 
-        Elements table = doc.getElementsByTag("table");
+        //取出图片替换链接
+        Elements img1 = doc.getElementsByTag("img");
+        for (Element img : img1) {
+            String src = img.attr("src");
 
+            for (String key : linkedHashMap.keySet()) {
+                if (src.equals(key)) {
+                    img.attr("src", linkedHashMap.get(key));
+                    break;
+                }
+            }
+        }
+
+        Elements table = doc.getElementsByTag("table");
         Elements div = doc.getElementsByTag("div");
 
-        Element node = table.get(table.size() - 1);
+        //页眉表格
+        if (!table.isEmpty()) {
+            Element node = table.get(table.size() - 1);
+            String text = node.text();
 
-        //获取解析后的页眉，与之前做对比，如果相同，则提取
-        String text = node.text().replaceAll("\\s", "");
+            if (text.equals(header)) {
+                //把页眉替换到头部
+                Element child = div.first().child(0);
+                child.before(node.toString());
+                //删除多余页眉
+                node.remove();
+            }
 
-        //String s1 = header.replaceAll("\\s", "").replaceAll("\r", "");
-
-        //把页眉替换到头部
-        /*Element child = div.first().child(0);
-        child.before(node.toString());
-        //删除多余页眉
-        node.remove();*/
+        }
+        //页眉非表格
+        if (null != header) {
+            // TODO 暂时没有好的解决办法，后期加
+        }
 
         //遍历取出图片
         Elements img = doc.select("img");
@@ -168,7 +209,6 @@ public class DocToHtml {
 
             }
         }
-
 
         //遍历取出所有a标签，解析href，替换为自己的接口,访问接口去数据库对比是否存在文件
         Elements e = doc.select("a");
@@ -201,7 +241,7 @@ public class DocToHtml {
         FileOutputStream fos = null;
         BufferedWriter bw = null;
         try {
-            File file = new File(path);
+            File file = new File("F:/1.html");
             fos = new FileOutputStream(file);
             bw = new BufferedWriter(new OutputStreamWriter(fos, "utf-8"));
 
