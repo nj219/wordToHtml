@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>鼠标拖动绘制矩形框(canvas)</title>
+</head>
+<body>
+<canvas id="canvas" width="800" height="500"></canvas>
+<script src="scrawl/libs/jquery.min.js"></script>
+
+<script>
+    var canvas = document.getElementById('canvas'); // 得到画布
+    var ctx = canvas.getContext('2d'); // 得到画布的上下文对象
+    var flag = false;
+    var x = 0; // 鼠标开始移动的位置X
+    var y = 0; // 鼠标开始移动的位置Y
+    var url = ''; // canvas图片的二进制格式转为dataURL格式
+
+    /* 为canvas绑定mouse事件 */
+    $('canvas').mousedown(function(e){
+        flag = true;
+        x = e.offsetX; // 鼠标落下时的X
+        y = e.offsetY; // 鼠标落下时的Y
+    }).mouseup(function(e){
+        flag = false;
+        url = $('canvas')[0].toDataURL(); // 每次 mouseup 都保存一次画布状态
+    }).mousemove(function(e){
+        drawRect(e); // 绘制方法
+        loadImage();
+    });
+
+    function drawRect(e){
+        if(flag){
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.beginPath();
+            ctx.strokeRect(x,y,e.offsetX-x,e.offsetY-y);
+        }
+    }
+
+
+    function loadImage(){
+        var img = new Image();
+        img.src = url;
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+    }
+</script>
+</body>
+</html>

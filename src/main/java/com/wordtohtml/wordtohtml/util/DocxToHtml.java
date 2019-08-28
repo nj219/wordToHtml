@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static javafx.beans.binding.Bindings.select;
+
 /**
  * @ClassName docxToHtmlController
  * @Author 牛杰
@@ -439,7 +441,8 @@ public class DocxToHtml {
             }
         }
 
-        Elements e = Jsoup.parse(endHtml).select("a");
+        Document parse = Jsoup.parse(endHtml);
+        Elements e = parse.select("a");
         for (int i = 0; i < e.size(); i++) {
             Element anode = e.get(i);
             String href = anode.attr("href");
@@ -453,7 +456,7 @@ public class DocxToHtml {
 
         /*结束*/
 
-        return bodyHtml;
+        return parse.getElementsByTag("body").toString();
     }
 
     /**

@@ -24,7 +24,7 @@ public class WordToHtmlApplicationTests {
             e.printStackTrace();
         }*/
 
-        try {
+        /*try {
             DocToHtml.convert2Html("F:\\file\\FCW-04-01-02-09.doc", "F:\\file\\doc.html");
         } catch (TransformerException e) {
             e.printStackTrace();
@@ -32,13 +32,13 @@ public class WordToHtmlApplicationTests {
             e.printStackTrace();
         } catch (ParserConfigurationException e) {
             e.printStackTrace();
-        }
+        }*/
 
-        /*try {
+        try {
             DocxToHtml.docx2Html("F:/file/FCW-14-02-01-04.docx", "F:/file/docx.html");
         } catch (IOException e) {
             e.printStackTrace();
-        }*/
+        }
 
         /*try {
             //XWPFUtils.getImgUrl("F:/file/测试.docx");
